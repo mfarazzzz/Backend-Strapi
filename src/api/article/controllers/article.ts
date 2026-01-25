@@ -268,6 +268,98 @@ export default factories.createCoreController('api::article.article', ({ strapi 
     return body ?? {};
   };
 
+  const normalizeRoleValue = (value: unknown) => (typeof value === 'string' ? value.trim().toLowerCase() : '');
+
+  const resolveUserRole = async (user: any): Promise<{ type?: string; name?: string }> => {
+    const role = user?.role;
+    const directType = normalizeRoleValue(role?.type);
+    const directName = normalizeRoleValue(role?.name);
+    if (directType || directName) {
+      return { type: directType || undefined, name: directName || undefined };
+    }
+
+    const id = user?.id;
+    if (!id) return {};
+
+    const full = await strapi.db
+      .query('plugin::users-permissions.user')
+      .findOne({ where: { id }, populate: ['role'] });
+    const fullRole = full?.role;
+    const type = normalizeRoleValue(fullRole?.type);
+    const name = normalizeRoleValue(fullRole?.name);
+    return { type: type || undefined, name: name || undefined };
+  };
+
+  const isAdminUser = async (ctx: any): Promise<boolean> => {
+    const user = ctx?.state?.user;
+    if (!user) return false;
+    const { type, name } = await resolveUserRole(user);
+    if (type === 'admin') return true;
+    if (name === 'admin') return true;
+    return false;
+  };
+
+  const forbid = (ctx: any, message: string) => {
+    ctx.status = 403;
+    ctx.body = { error: message };
+  };
+
+  const enforcePublicationRules = async (ctx: any, input: any, opts: { mode: 'create' | 'update'; id?: string }) => {
+    const statusProvided = Object.prototype.hasOwnProperty.call(input, 'status');
+    const status = parseString(input.status);
+    const publishedDateProvided = Object.prototype.hasOwnProperty.call(input, 'publishedDate');
+    const scheduledAtProvided = Object.prototype.hasOwnProperty.call(input, 'scheduledAt');
+    const publishedDate = parseDateToISO(input.publishedDate);
+    const scheduledAt = parseDateToISO(input.scheduledAt);
+
+    const admin = await isAdminUser(ctx);
+    if (admin) return true;
+
+    if (opts.mode === 'create') {
+      if (status === 'published' || (publishedDateProvided && publishedDate)) {
+        forbid(ctx, 'Only admin can publish articles');
+        return false;
+      }
+      if (status === 'scheduled' || (scheduledAtProvided && scheduledAt)) {
+        forbid(ctx, 'Only admin can schedule articles');
+        return false;
+      }
+      return true;
+    }
+
+    const id = opts.id;
+    if (!id) return true;
+
+    if (publishedDateProvided && publishedDate) {
+      forbid(ctx, 'Only admin can publish articles');
+      return false;
+    }
+
+    if (scheduledAtProvided && scheduledAt) {
+      forbid(ctx, 'Only admin can schedule articles');
+      return false;
+    }
+
+    if (statusProvided) {
+      if (status === 'published' || status === 'scheduled') {
+        forbid(ctx, status === 'scheduled' ? 'Only admin can schedule articles' : 'Only admin can publish articles');
+        return false;
+      }
+      if (status === 'draft') {
+        const existing = await es.findOne('api::article.article', id, {
+          publicationState: 'preview',
+        });
+        const isPublished = !!existing?.publishedAt || !!existing?.published_at;
+        if (isPublished) {
+          forbid(ctx, 'Only admin can unpublish articles');
+          return false;
+        }
+      }
+    }
+
+    return true;
+  };
+
   const ensureUniqueSlug = async (base: string, excludeId?: number): Promise<string> => {
     const root = slugify(base) || `article-${Date.now()}`;
     let candidate = root;
@@ -899,6 +991,7 @@ export default factories.createCoreController('api::article.article', ({ strapi 
   async create(ctx) {
     const origin = getPublicOrigin(ctx);
     const input = extractData(ctx.request.body);
+    if (!(await enforcePublicationRules(ctx, input, { mode: 'create' }))) return;
     try {
       const data = await buildStrapiArticleData(input, origin, false);
       const entity = await es.create('api::article.article', {
@@ -923,6 +1016,7 @@ export default factories.createCoreController('api::article.article', ({ strapi 
     const id = ctx.params.id;
     const origin = getPublicOrigin(ctx);
     const input = extractData(ctx.request.body);
+    if (!(await enforcePublicationRules(ctx, input, { mode: 'update', id }))) return;
     const data = await buildStrapiArticleData(input, origin, true);
     if (typeof data.slug === 'string' && data.slug.trim()) {
       data.slug = await ensureUniqueSlug(data.slug, Number(id));
