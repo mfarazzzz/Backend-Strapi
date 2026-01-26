@@ -316,12 +316,20 @@ export default factories.createCoreController('api::article.article', ({ strapi 
     if (admin) return true;
 
     if (opts.mode === 'create') {
-      if (status === 'published' || (publishedDateProvided && publishedDate)) {
+      if (status === 'published') {
         forbid(ctx, 'Only admin can publish articles');
         return false;
       }
-      if (status === 'scheduled' || (scheduledAtProvided && scheduledAt)) {
+      if (status === 'scheduled') {
         forbid(ctx, 'Only admin can schedule articles');
+        return false;
+      }
+      if (scheduledAtProvided && scheduledAt) {
+        forbid(ctx, 'Only admin can schedule articles');
+        return false;
+      }
+      if ((!status || (status !== 'draft' && status !== 'published' && status !== 'scheduled')) && publishedDateProvided && publishedDate) {
+        forbid(ctx, 'Only admin can publish articles');
         return false;
       }
       return true;
@@ -330,13 +338,13 @@ export default factories.createCoreController('api::article.article', ({ strapi 
     const id = opts.id;
     if (!id) return true;
 
-    if (publishedDateProvided && publishedDate) {
-      forbid(ctx, 'Only admin can publish articles');
+    if (scheduledAtProvided && scheduledAt) {
+      forbid(ctx, 'Only admin can schedule articles');
       return false;
     }
 
-    if (scheduledAtProvided && scheduledAt) {
-      forbid(ctx, 'Only admin can schedule articles');
+    if (publishedDateProvided && publishedDate && status !== 'draft') {
+      forbid(ctx, 'Only admin can publish articles');
       return false;
     }
 

@@ -10,13 +10,13 @@ export default {
       method: 'POST',
       path: '/media',
       handler: 'media.create',
-      config: { auth: false },
+      config: { auth: false, policies: ['global::cms-role'] },
     },
     {
       method: 'DELETE',
       path: '/media/:id',
       handler: 'media.delete',
-      config: { auth: false },
+      config: { auth: false, policies: ['global::cms-role'] },
     },
   ],
 };
