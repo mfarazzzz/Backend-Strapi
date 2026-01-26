@@ -22,19 +22,19 @@ export default {
       method: 'POST',
       path: '/categories',
       handler: 'category.create',
-      config: { auth: false, policies: ['global::cms-role'] },
+      config: { auth: { scope: ['api::category.category.create'] } },
     },
     {
       method: 'PATCH',
       path: '/categories/:id',
       handler: 'category.update',
-      config: { auth: false, policies: ['global::cms-role'] },
+      config: { auth: { scope: ['api::category.category.update'] } },
     },
     {
       method: 'DELETE',
       path: '/categories/:id',
       handler: 'category.delete',
-      config: { auth: false, policies: ['global::cms-role'] },
+      config: { auth: { scope: ['api::category.category.delete'] } },
     },
   ],
 };

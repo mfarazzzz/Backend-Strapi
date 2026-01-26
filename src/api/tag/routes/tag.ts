@@ -22,19 +22,19 @@ export default {
       method: 'POST',
       path: '/tags',
       handler: 'tag.create',
-      config: { auth: false, policies: ['global::cms-role'] },
+      config: { auth: { scope: ['api::tag.tag.create'] } },
     },
     {
       method: 'PATCH',
       path: '/tags/:id',
       handler: 'tag.update',
-      config: { auth: false, policies: ['global::cms-role'] },
+      config: { auth: { scope: ['api::tag.tag.update'] } },
     },
     {
       method: 'DELETE',
       path: '/tags/:id',
       handler: 'tag.delete',
-      config: { auth: false, policies: ['global::cms-role'] },
+      config: { auth: { scope: ['api::tag.tag.delete'] } },
     },
   ],
 };

@@ -16,19 +16,19 @@ export default {
       method: 'POST',
       path: '/authors',
       handler: 'author.create',
-      config: { auth: false, policies: ['global::cms-role'] },
+      config: { auth: { scope: ['api::author.author.create'] } },
     },
     {
       method: 'PATCH',
       path: '/authors/:id',
       handler: 'author.update',
-      config: { auth: false, policies: ['global::cms-role'] },
+      config: { auth: { scope: ['api::author.author.update'] } },
     },
     {
       method: 'DELETE',
       path: '/authors/:id',
       handler: 'author.delete',
-      config: { auth: false, policies: ['global::cms-role'] },
+      config: { auth: { scope: ['api::author.author.delete'] } },
     },
   ],
 };

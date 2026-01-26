@@ -51,7 +51,7 @@ export default {
         .insert(missing.map((permissionId) => ({ role_id: roleId, permission_id: permissionId })));
     };
 
-    const consolidateRolesByType = async (type: string, desiredName?: string, desiredDescription?: string) => {
+    const syncDuplicateRolesByType = async (type: string) => {
       const roles = (await strapi.db
         .query('plugin::users-permissions.role')
         .findMany({ where: { type } })) as any[];
@@ -66,66 +66,15 @@ export default {
       if (rolesWithCounts.length <= 1) return;
 
       rolesWithCounts.sort((a, b) => b.count - a.count);
-      const canonicalRole = rolesWithCounts[0]?.role;
-      const canonicalId = toNumber(canonicalRole?.id);
+      const canonicalId = toNumber(rolesWithCounts[0]?.role?.id);
       if (!canonicalId) return;
 
-      const desiredPatch: Record<string, any> = {};
-      if (typeof desiredName === 'string' && desiredName.trim() && canonicalRole?.name !== desiredName) {
-        desiredPatch.name = desiredName;
-      }
-      if (
-        typeof desiredDescription === 'string' &&
-        desiredDescription.trim() &&
-        canonicalRole?.description !== desiredDescription
-      ) {
-        desiredPatch.description = desiredDescription;
-      }
-      if (Object.keys(desiredPatch).length > 0) {
-        await strapi.db.query('plugin::users-permissions.role').update({
-          where: { id: canonicalId },
-          data: desiredPatch,
-        });
-      }
-
+      const canonicalPermissionIds = await getPermissionIdsForRole(canonicalId);
       for (const { role } of rolesWithCounts.slice(1)) {
-        const duplicateId = toNumber(role?.id);
-        if (!duplicateId || duplicateId === canonicalId) continue;
-
-        const duplicatePermissionIds = await getPermissionIdsForRole(duplicateId);
-        await linkPermissionsToRole(canonicalId, duplicatePermissionIds);
-
-        await strapi.db
-          .connection('up_users')
-          .where({ role_id: duplicateId })
-          .update({ role_id: canonicalId });
-
-        await strapi.db
-          .connection('up_permissions_role_lnk')
-          .where({ role_id: duplicateId })
-          .delete();
-
-        await strapi.db.query('plugin::users-permissions.role').delete({ where: { id: duplicateId } });
-      }
-    };
-
-    const pickRoleByTypeWithMostPermissions = async (type: string) => {
-      const roles = (await strapi.db
-        .query('plugin::users-permissions.role')
-        .findMany({ where: { type } })) as any[];
-      if (!Array.isArray(roles) || roles.length === 0) return null;
-      let best: any | null = null;
-      let bestCount = -1;
-      for (const role of roles) {
         const id = toNumber(role?.id);
         if (!id) continue;
-        const count = await countPermissionLinks(id);
-        if (count > bestCount) {
-          best = role;
-          bestCount = count;
-        }
+        await linkPermissionsToRole(id, canonicalPermissionIds);
       }
-      return best;
     };
 
     const ensureAdminUserPermissions = async () => {
@@ -159,100 +108,38 @@ export default {
       });
     };
 
-    await ensureRole('admin', 'CMS Admin', 'Full access within the CMS.');
+    await ensureRole('admin', 'Admin', 'Full access within the Admin CMS.');
     await ensureRole('editor', 'Editor', 'Can edit and publish content.');
     await ensureRole('author', 'Author', 'Can create and edit own content.');
     await ensureRole('contributor', 'Contributor', 'Can submit drafts for review.');
 
-    await consolidateRolesByType('admin', 'CMS Admin', 'Full access within the CMS.');
-    await consolidateRolesByType('editor');
-    await consolidateRolesByType('author');
-    await consolidateRolesByType('contributor');
+    await syncDuplicateRolesByType('admin');
+    await syncDuplicateRolesByType('editor');
+    await syncDuplicateRolesByType('author');
+    await syncDuplicateRolesByType('contributor');
     await ensureAdminUserPermissions();
 
     const bootstrapEmail = process.env.BOOTSTRAP_ADMIN_EMAIL;
     const bootstrapPassword = process.env.BOOTSTRAP_ADMIN_PASSWORD;
-    const adminRole = await pickRoleByTypeWithMostPermissions('admin');
-    if (adminRole?.id) {
-      const userService = strapi.plugin('users-permissions').service('user');
-
-      const parseEmailList = (raw: any): string[] => {
-        if (typeof raw !== 'string') return [];
-        return raw
-          .split(',')
-          .map((v) => v.trim().toLowerCase())
-          .filter((v) => v.length > 0);
-      };
-
-      const uniqueEmails = (emails: Array<any>): string[] => {
-        const out: string[] = [];
-        const seen = new Set<string>();
-        for (const raw of emails.flat()) {
-          if (typeof raw !== 'string') continue;
-          const email = raw.trim().toLowerCase();
-          if (!email) continue;
-          if (seen.has(email)) continue;
-          seen.add(email);
-          out.push(email);
+    if (bootstrapEmail && bootstrapPassword) {
+      const adminRoles = (await strapi.db
+        .query('plugin::users-permissions.role')
+        .findMany({ where: { type: 'admin' } })) as any[];
+      let adminRole: any | null = null;
+      let bestCount = -1;
+      if (Array.isArray(adminRoles)) {
+        for (const role of adminRoles) {
+          const id = toNumber(role?.id);
+          if (!id) continue;
+          const count = await countPermissionLinks(id);
+          if (count > bestCount) {
+            bestCount = count;
+            adminRole = role;
+          }
         }
-        return out;
-      };
-
-      const cmsAdminEmail = process.env.CMS_ADMIN_EMAIL;
-      const cmsAdminEmails = uniqueEmails([
-        bootstrapEmail,
-        cmsAdminEmail,
-        ...parseEmailList(process.env.CMS_ADMIN_EMAILS),
-        'admin@rampurnews.com',
-        'mfarazzzz@outlook.com',
-      ]);
-
-      const editorRole = await pickRoleByTypeWithMostPermissions('editor');
-      const editorEmailsRaw = uniqueEmails([
-        process.env.CMS_EDITOR_EMAIL,
-        ...parseEmailList(process.env.CMS_EDITOR_EMAILS),
-        'editor@rampurnews.com',
-      ]);
-      const cmsEditorEmails = editorEmailsRaw.filter((email) => !cmsAdminEmails.includes(email));
-
-      const promoteExistingByEmail = async (email: string, roleId: any) => {
-        const existing = await strapi.db
-          .query('plugin::users-permissions.user')
-          .findOne({ where: { email }, populate: ['role'] });
-        if (!existing) return false;
-
-        const patch: Record<string, any> = {};
-        if (existing?.role?.id !== roleId) patch.role = String(roleId);
-        if (existing?.provider !== 'local') patch.provider = 'local';
-        if (Object.keys(patch).length > 0) {
-          await userService.edit(existing.id, patch);
-        }
-        return true;
-      };
-
-      const promoteExistingByEmails = async (emails: string[], roleId: any) => {
-        let promotedCount = 0;
-        for (const email of emails) {
-          if (await promoteExistingByEmail(email, roleId)) promotedCount += 1;
-        }
-        return promotedCount;
-      };
-
-      const ensureAdminFallback = async () => {
-        const existingByUsername = await strapi.db
-          .query('plugin::users-permissions.user')
-          .findOne({ where: { username: 'admin' }, populate: ['role'] });
-        if (!existingByUsername) return false;
-        const patch: Record<string, any> = {};
-        if (existingByUsername?.role?.id !== adminRole.id) patch.role = String(adminRole.id);
-        if (existingByUsername?.provider !== 'local') patch.provider = 'local';
-        if (Object.keys(patch).length > 0) {
-          await userService.edit(existingByUsername.id, patch);
-        }
-        return true;
-      };
-
-      if (bootstrapEmail && bootstrapPassword) {
+      }
+      if (adminRole?.id) {
+        const userService = strapi.plugin('users-permissions').service('user');
         const existing = await strapi.db
           .query('plugin::users-permissions.user')
           .findOne({ where: { email: bootstrapEmail }, populate: ['role'] });
@@ -266,14 +153,14 @@ export default {
             blocked: false,
             role: String(adminRole.id),
           });
+        } else {
+          const patch: Record<string, any> = {};
+          if (existing?.role?.id !== adminRole.id) patch.role = String(adminRole.id);
+          if (existing?.provider !== 'local') patch.provider = 'local';
+          if (Object.keys(patch).length > 0) {
+            await userService.edit(existing.id, patch);
+          }
         }
-      }
-
-      await promoteExistingByEmails(cmsAdminEmails, adminRole.id);
-      await ensureAdminFallback();
-
-      if (editorRole?.id) {
-        await promoteExistingByEmails(cmsEditorEmails, editorRole.id);
       }
     }
 
