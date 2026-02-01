@@ -11,4 +11,10 @@ export default ({ env }) => ({
       defaultLocale: 'hi',
     },
   },
+  'auto-slug-manager': {
+    enabled: true,
+  },
+  'strapi-advanced-sitemap': {
+    enabled: true,
+  },
 });
