@@ -11,30 +11,34 @@
     "develop": "strapi develop",
     "start": "strapi start",
     "strapi": "strapi",
+    "typecheck": "tsc --noEmit",
     "upgrade": "npx --yes @strapi/upgrade latest --yes",
     "upgrade:dry": "npx --yes @strapi/upgrade latest --dry --yes"
   },
   "dependencies": {
-    "@strapi/plugin-cloud": "^5.33.4",
-    "@strapi/plugin-users-permissions": "^5.33.4",
-    "@strapi/strapi": "^5.33.4",
+    "@strapi/plugin-cloud": "^5.12.0",
+    "@strapi/plugin-documentation": "^5.12.0",
+    "@strapi/plugin-i18n": "^5.12.0",
+    "@strapi/plugin-users-permissions": "^5.12.0",
+    "@strapi/strapi": "^5.12.0",
     "@webbycrown/strapi-advanced-sitemap": "^1.0.6",
-    "better-sqlite3": "12.6.2",
-    "react": "^18.0.0",
-    "react-dom": "^18.0.0",
-    "react-router-dom": "^6.0.0",
+    "better-sqlite3": "^11.8.0",
+    "pg": "^8.13.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "react-router-dom": "^6.28.0",
     "strapi-plugin-auto-slug-manager-a-mi13": "^1.1.0",
-    "styled-components": "^6.0.0"
+    "styled-components": "^6.1.0"
   },
   "devDependencies": {
-    "@types/node": "^20",
-    "@types/react": "^18",
-    "@types/react-dom": "^18",
-    "typescript": "^5"
+    "@types/node": "^22.12.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "typescript": "^5.7.3"
   },
   "engines": {
-    "node": ">=20.0.0 <=24.x.x",
-    "npm": ">=6.0.0"
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
   },
   "overrides": {
     "tar": "7.5.6",
