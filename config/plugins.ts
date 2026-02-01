@@ -17,4 +17,21 @@ export default ({ env }) => ({
   'strapi-advanced-sitemap': {
     enabled: true,
   },
+  'users-permissions': {
+    enabled: true,
+    config: {
+      jwt: {
+        expiresIn: '7d',
+      },
+      register: {
+        allowedFields: ['username', 'email', 'password'],
+      },
+      advancedSettings: {
+        unique_email: true,
+        allow_register: true,
+        email_confirmation: false,
+        default_role: 'authenticated',
+      },
+    },
+  },
 });

@@ -122,6 +122,12 @@ const normalizeArticle = (entity: any, origin: string) => {
     videoType: entity?.videoType ? String(entity.videoType) : undefined,
     videoTitle: entity?.videoTitle ? String(entity.videoTitle) : undefined,
     scheduledAt: scheduledAt || undefined,
+    // Workflow fields
+    workflowStatus: entity?.workflowStatus ? String(entity.workflowStatus) : 'draft',
+    reviewNotes: entity?.reviewNotes ? String(entity.reviewNotes) : undefined,
+    reviewedBy: entity?.reviewedBy?.id ? String(entity.reviewedBy.id) : undefined,
+    reviewedAt: entity?.reviewedAt ? String(entity.reviewedAt) : undefined,
+    submittedForReviewAt: entity?.submittedForReviewAt ? String(entity.submittedForReviewAt) : undefined,
   };
 };
 
@@ -232,6 +238,7 @@ const articlePopulate: any = {
   category: true,
   author: { populate: { avatar: true } },
   tags: true,
+  reviewedBy: true,
 };
 
 export default factories.createCoreController('api::article.article', ({ strapi }) => {
@@ -938,6 +945,346 @@ export default factories.createCoreController('api::article.article', ({ strapi 
     const id = ctx.params.id;
     await es.delete('api::article.article', id);
     ctx.status = 204;
+  },
+
+  // ============================================
+  // WORKFLOW ACTIONS
+  // ============================================
+
+  /**
+   * Submit article for review
+   * Sets workflowStatus to 'review' and records timestamp
+   */
+  async submitForReview(ctx) {
+    const id = ctx.params.id;
+    const origin = getPublicOrigin(ctx);
+
+    try {
+      // Verify article exists
+      const existing = await es.findOne('api::article.article', id, {
+        populate: articlePopulate,
+      });
+
+      if (!existing) {
+        ctx.notFound('Article not found');
+        return;
+      }
+
+      // Check if article is in draft status
+      if (existing.workflowStatus && existing.workflowStatus !== 'draft') {
+        ctx.badRequest('Only draft articles can be submitted for review');
+        return;
+      }
+
+      // Update article status
+      const entity = await es.update('api::article.article', id, {
+        data: {
+          workflowStatus: 'review',
+          submittedForReviewAt: new Date().toISOString(),
+        },
+        populate: articlePopulate,
+      });
+
+      strapi.log.info(`[workflow] Article ${id} submitted for review`);
+      return normalizeArticle(entity, origin);
+    } catch (error: any) {
+      strapi.log.error(`[workflow] Error submitting article ${id} for review:`, error);
+      throw error;
+    }
+  },
+
+  /**
+   * Approve article (Reviewer/Editor)
+   * Marks article as approved and ready for publishing
+   */
+  async approve(ctx) {
+    const id = ctx.params.id;
+    const origin = getPublicOrigin(ctx);
+    const user = ctx.state?.user;
+    const body = ctx.request.body;
+    const reviewNotes = typeof body?.reviewNotes === 'string' ? body.reviewNotes.trim() : '';
+
+    try {
+      // Verify article exists
+      const existing = await es.findOne('api::article.article', id, {
+        populate: articlePopulate,
+      });
+
+      if (!existing) {
+        ctx.notFound('Article not found');
+        return;
+      }
+
+      // Check if article is in review status
+      if (existing.workflowStatus !== 'review') {
+        ctx.badRequest('Only articles in review status can be approved');
+        return;
+      }
+
+      // Update article - keep in review status but mark as reviewed
+      const updateData: Record<string, any> = {
+        reviewedAt: new Date().toISOString(),
+      };
+
+      if (user?.id) {
+        updateData.reviewedBy = user.id;
+      }
+
+      if (reviewNotes) {
+        updateData.reviewNotes = reviewNotes;
+      }
+
+      const entity = await es.update('api::article.article', id, {
+        data: updateData,
+        populate: articlePopulate,
+      });
+
+      strapi.log.info(`[workflow] Article ${id} approved by user ${user?.id || 'unknown'}`);
+      return normalizeArticle(entity, origin);
+    } catch (error: any) {
+      strapi.log.error(`[workflow] Error approving article ${id}:`, error);
+      throw error;
+    }
+  },
+
+  /**
+   * Reject article (Reviewer/Editor)
+   * Sets status back to 'draft' and adds review notes
+   */
+  async reject(ctx) {
+    const id = ctx.params.id;
+    const origin = getPublicOrigin(ctx);
+    const user = ctx.state?.user;
+    const body = ctx.request.body;
+    const reviewNotes = typeof body?.reviewNotes === 'string' ? body.reviewNotes.trim() : '';
+
+    try {
+      // Verify article exists
+      const existing = await es.findOne('api::article.article', id, {
+        populate: articlePopulate,
+      });
+
+      if (!existing) {
+        ctx.notFound('Article not found');
+        return;
+      }
+
+      // Check if article is in review status
+      if (existing.workflowStatus !== 'review') {
+        ctx.badRequest('Only articles in review status can be rejected');
+        return;
+      }
+
+      // Require review notes for rejection
+      if (!reviewNotes) {
+        ctx.badRequest('Review notes are required when rejecting an article');
+        return;
+      }
+
+      // Update article status back to draft
+      const updateData: Record<string, any> = {
+        workflowStatus: 'draft',
+        reviewNotes,
+        reviewedAt: new Date().toISOString(),
+      };
+
+      if (user?.id) {
+        updateData.reviewedBy = user.id;
+      }
+
+      const entity = await es.update('api::article.article', id, {
+        data: updateData,
+        populate: articlePopulate,
+      });
+
+      strapi.log.info(`[workflow] Article ${id} rejected by user ${user?.id || 'unknown'}`);
+      return normalizeArticle(entity, origin);
+    } catch (error: any) {
+      strapi.log.error(`[workflow] Error rejecting article ${id}:`, error);
+      throw error;
+    }
+  },
+
+  /**
+   * Publish article (Editor only)
+   * Sets workflowStatus to 'published' and publishedAt timestamp
+   */
+  async publish(ctx) {
+    const id = ctx.params.id;
+    const origin = getPublicOrigin(ctx);
+    const user = ctx.state?.user;
+
+    try {
+      // Verify article exists
+      const existing = await es.findOne('api::article.article', id, {
+        populate: articlePopulate,
+      });
+
+      if (!existing) {
+        ctx.notFound('Article not found');
+        return;
+      }
+
+      // Check if article is in review status (approved)
+      if (existing.workflowStatus !== 'review') {
+        ctx.badRequest('Only reviewed articles can be published');
+        return;
+      }
+
+      // Update article to published
+      const entity = await es.update('api::article.article', id, {
+        data: {
+          workflowStatus: 'published',
+          publishedAt: new Date().toISOString(),
+        },
+        populate: articlePopulate,
+      });
+
+      strapi.log.info(`[workflow] Article ${id} published by user ${user?.id || 'unknown'}`);
+      return normalizeArticle(entity, origin);
+    } catch (error: any) {
+      strapi.log.error(`[workflow] Error publishing article ${id}:`, error);
+      throw error;
+    }
+  },
+
+  /**
+   * Unpublish article (Editor only)
+   * Sets workflowStatus back to 'draft' and clears publishedAt
+   */
+  async unpublish(ctx) {
+    const id = ctx.params.id;
+    const origin = getPublicOrigin(ctx);
+    const user = ctx.state?.user;
+
+    try {
+      // Verify article exists
+      const existing = await es.findOne('api::article.article', id, {
+        populate: articlePopulate,
+      });
+
+      if (!existing) {
+        ctx.notFound('Article not found');
+        return;
+      }
+
+      // Check if article is published
+      if (existing.workflowStatus !== 'published') {
+        ctx.badRequest('Only published articles can be unpublished');
+        return;
+      }
+
+      // Update article to draft
+      const entity = await es.update('api::article.article', id, {
+        data: {
+          workflowStatus: 'draft',
+          publishedAt: null,
+        },
+        populate: articlePopulate,
+      });
+
+      strapi.log.info(`[workflow] Article ${id} unpublished by user ${user?.id || 'unknown'}`);
+      return normalizeArticle(entity, origin);
+    } catch (error: any) {
+      strapi.log.error(`[workflow] Error unpublishing article ${id}:`, error);
+      throw error;
+    }
+  },
+
+  /**
+   * Get articles pending review (Reviewer/Editor)
+   * Returns all articles with workflowStatus = 'review'
+   */
+  async reviewQueue(ctx) {
+    const limit = parseLimit(ctx.query.limit, 25);
+    const offset = parseNumber(ctx.query.offset) ?? 0;
+    const origin = getPublicOrigin(ctx);
+
+    try {
+      const filters = { workflowStatus: 'review' };
+
+      const [entities, total] = await Promise.all([
+        es.findMany('api::article.article', {
+          filters,
+          sort: { submittedForReviewAt: 'asc' },
+          populate: articlePopulate,
+          publicationState: 'preview',
+          start: offset,
+          limit,
+        }),
+        es.count('api::article.article', { filters, publicationState: 'preview' }),
+      ]);
+
+      const pageSize = limit;
+      const page = pageSize > 0 ? Math.floor(offset / pageSize) + 1 : 1;
+      const totalPages = pageSize > 0 ? Math.ceil(total / pageSize) : 1;
+
+      return {
+        data: (entities as any[]).map((e) => normalizeArticle(e, origin)),
+        total,
+        page,
+        pageSize,
+        totalPages,
+      };
+    } catch (error: any) {
+      strapi.log.error('[workflow] Error fetching review queue:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Get current user's articles
+   * Returns articles created by the authenticated user
+   */
+  async myArticles(ctx) {
+    const limit = parseLimit(ctx.query.limit, 25);
+    const offset = parseNumber(ctx.query.offset) ?? 0;
+    const status = parseString(ctx.query.status);
+    const origin = getPublicOrigin(ctx);
+    const user = ctx.state?.user;
+
+    if (!user?.id) {
+      ctx.unauthorized('Authentication required');
+      return;
+    }
+
+    try {
+      const filters: Record<string, any> = {
+        createdBy: { id: user.id },
+      };
+
+      // Filter by workflow status if provided
+      if (status === 'draft' || status === 'review' || status === 'published') {
+        filters.workflowStatus = status;
+      }
+
+      const [entities, total] = await Promise.all([
+        es.findMany('api::article.article', {
+          filters,
+          sort: { updatedAt: 'desc' },
+          populate: articlePopulate,
+          publicationState: 'preview',
+          start: offset,
+          limit,
+        }),
+        es.count('api::article.article', { filters, publicationState: 'preview' }),
+      ]);
+
+      const pageSize = limit;
+      const page = pageSize > 0 ? Math.floor(offset / pageSize) + 1 : 1;
+      const totalPages = pageSize > 0 ? Math.ceil(total / pageSize) : 1;
+
+      return {
+        data: (entities as any[]).map((e) => normalizeArticle(e, origin)),
+        total,
+        page,
+        pageSize,
+        totalPages,
+      };
+    } catch (error: any) {
+      strapi.log.error(`[workflow] Error fetching articles for user ${user?.id}:`, error);
+      throw error;
+    }
   },
   });
 });

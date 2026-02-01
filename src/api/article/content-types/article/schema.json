@@ -151,6 +151,27 @@
       "target": "api::author.author",
       "inversedBy": "articles",
       "required": true
+    },
+    "workflowStatus": {
+      "type": "enumeration",
+      "enum": ["draft", "review", "published"],
+      "default": "draft",
+      "required": true
+    },
+    "reviewNotes": {
+      "type": "text",
+      "maxLength": 1000
+    },
+    "reviewedBy": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::users-permissions.user"
+    },
+    "reviewedAt": {
+      "type": "datetime"
+    },
+    "submittedForReviewAt": {
+      "type": "datetime"
     }
   }
 }

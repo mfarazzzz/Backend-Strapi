@@ -108,15 +108,25 @@ export default {
       });
     };
 
+    // Existing roles
     await ensureRole('admin', 'Admin', 'Full access within the Admin CMS.');
     await ensureRole('editor', 'Editor', 'Can edit and publish content.');
     await ensureRole('author', 'Author', 'Can create and edit own content.');
     await ensureRole('contributor', 'Contributor', 'Can submit drafts for review.');
 
+    // Newsroom RBAC roles (see docs/RBAC-ARCHITECTURE.md)
+    await ensureRole('reader', 'Reader', 'Can read published articles only.');
+    await ensureRole('reporter', 'Reporter', 'Can create and edit own articles.');
+    await ensureRole('reviewer', 'Reviewer', 'Can review and approve articles for publishing.');
+
+    // Sync duplicate roles
     await syncDuplicateRolesByType('admin');
     await syncDuplicateRolesByType('editor');
     await syncDuplicateRolesByType('author');
     await syncDuplicateRolesByType('contributor');
+    await syncDuplicateRolesByType('reader');
+    await syncDuplicateRolesByType('reporter');
+    await syncDuplicateRolesByType('reviewer');
     await ensureAdminUserPermissions();
 
     const bootstrapEmail = process.env.BOOTSTRAP_ADMIN_EMAIL;
