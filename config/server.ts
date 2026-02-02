@@ -84,8 +84,8 @@ export default ({ env }) => {
       serverOptions: {
         // Request timeout (2 minutes)
         requestTimeout: env.int('REQUEST_TIMEOUT', 120000),
-        // Headers timeout (slightly longer than request timeout)
-        headersTimeout: env.int('HEADERS_TIMEOUT', 125000),
+        // Headers timeout (must be lower than requestTimeout to avoid Node.js RangeError)
+        headersTimeout: env.int('HEADERS_TIMEOUT', 110000),
         // Keep-alive timeout
         keepAliveTimeout: env.int('KEEP_ALIVE_TIMEOUT', 30000),
       },
