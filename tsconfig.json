@@ -2,8 +2,8 @@
   "compilerOptions": {
     "module": "CommonJS",
     "moduleResolution": "Node",
-    "lib": ["ES2023"],
-    "target": "ES2023",
+    "lib": ["ES2022"],
+    "target": "ES2022",
     "strict": true,
     "strictNullChecks": true,
     "strictFunctionTypes": true,
