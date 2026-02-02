@@ -38,20 +38,15 @@ export default ({ env }) => {
           action: 'sameorigin',
         },
         // X-Content-Type-Options
-        contentTypeOptions: {
-          enabled: true,
-        },
+        contentTypeOptions: true,
         // X-XSS-Protection (legacy but still useful)
-        xssFilter: {
-          enabled: true,
-        },
+        xssFilter: true,
         // Strict-Transport-Security (HSTS)
-        hsts: {
-          enabled: isProduction,
+        hsts: isProduction ? {
           maxAge: 31536000, // 1 year
           includeSubDomains: true,
           preload: true,
-        },
+        } : false,
         // Referrer-Policy
         referrerPolicy: {
           policy: 'strict-origin-when-cross-origin',
@@ -67,7 +62,6 @@ export default ({ env }) => {
     {
       name: 'strapi::cors',
       config: {
-        enabled: true,
         origin: env.array('CORS_ORIGINS', [
           'http://localhost:3000',
           'http://127.0.0.1:3000',
