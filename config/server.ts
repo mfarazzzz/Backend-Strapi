@@ -61,10 +61,10 @@ export default ({ env }) => {
     },
     
     // Socket configuration for real-time features
-    socket: {
-      // Enable socket.io for real-time updates
-      enabled: env.bool('SOCKET_ENABLED', false),
-    },
+    // socket: {
+    //   // Enable socket.io for real-time updates
+    //   enabled: env.bool('SOCKET_ENABLED', false),
+    // },
     
     // Cron jobs configuration
     cron: {
